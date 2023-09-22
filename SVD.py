@@ -12,9 +12,9 @@ Grad = s[0]*(array([u[:,0]]).T @ [vh[0]])
 Mnew = Grad*0
 F = figure()
 G = F.add_subplot(121)
-G.set_title("Gradient")
+G.set_title("ith term")
 MN = F.add_subplot(122)
-MN.set_title("Sum of all gradients")
+MN.set_title("Sum of first i terms")
 g = G.imshow(Mnew,cmap="gray")
 mn = MN.imshow(Mnew,cmap="gray")
 for i in range(50):
