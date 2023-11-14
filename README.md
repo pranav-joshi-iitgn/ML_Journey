@@ -1,2 +1,2 @@
 # ML_Journey
-This repo contains all the stuff me and my friends have done for understanding ML.
+This repo contains all the stuff I have done for understanding ML.
