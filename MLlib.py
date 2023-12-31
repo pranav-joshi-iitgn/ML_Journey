@@ -1,9 +1,8 @@
 from matplotlib.pyplot import *
 from numpy import *
-from numpy.linalg import eig
 from graphviz import Digraph
 from IPython.display import Image,display
-from sklearn.datasets import load_breast_cancer
+from sklearn.datasets import load_digits
 
 g = Digraph("Network")
 NodeCollection = []
@@ -43,7 +42,7 @@ class Node:
     def __sub__(self,other):
         return self + (-toNode(other))
     def recieve(self):
-        self.grad = 0
+        self.grad = array([[0.0]],float64)
         for n in self.outputNodes:
             DFDX = n.dfdx_value[self.id]
             GRAD = n.grad
@@ -51,12 +50,12 @@ class Node:
             #print("DFDX",DFDX.shape)
             #print("GRAD",GRAD.shape)
             if len(DFDX.shape)==1 and GRAD.shape==(1,DFDX.shape[0]) and len(self.value.shape)==2:
-                self.grad += GRAD.T @ DFDX[newaxis,:]
+                self.grad = self.grad + GRAD.T @ DFDX[newaxis,:]
             elif DFDX.shape==(1,) or GRAD.shape ==(1,):
-                self.grad += GRAD*DFDX
+                self.grad = self.grad +  GRAD*DFDX
             else:
                 #self.grad += dot(GRAD,DFDX)
-                self.grad += GRAD @ DFDX
+                self.grad = self.grad + GRAD @ DFDX
 class Function(Node):
     COLOR = "green"
     f = None
@@ -76,7 +75,7 @@ class Function(Node):
         self.inputs = dict([(node.id,node.value) for node in self.inputNodes])
         self.value = self.f(self.inputs)
         self.dfdx_value = self.dfdx(self.inputs)
-        self.grad = array([[1]])
+        self.grad = array([[0.0]],float64)
     def backward(self):
         for n in self.inputNodes:
             n.recieve()
@@ -86,7 +85,7 @@ class Variable(Node):
     def __init__(self,value,name=None,draw=True):
         super().__init__(name,draw)
         self.value = value
-        self.grad = array([[1]])
+        self.grad = array([[0]],float64)
         Variables.append(self)
     def backward(self):
         pass
@@ -94,6 +93,7 @@ class Variable(Node):
         global dt
         self.grad.resize(self.value.shape)
         self.value = self.value - self.grad*dt
+        self.grad= array([[0]],dtype=float64)
 class Constant(Variable):
     COLOR="black"
     def recieve(self):
@@ -107,14 +107,14 @@ def toNode(other,draw=True):
     if type(other) != ndarray:
         if type(other) != iterable:
             name = str(other)
-            other = array([other])
+            other = array([other]).astype(float64)
         else:
             other = array(other)
     return Constant(other,name,draw)
 class Add(Function):
     name = "+"
     def f(self,inputs):
-        S = 0
+        S = 0.0
         for id in inputs:
             S = S + inputs[id]
         return S
@@ -130,14 +130,14 @@ class Add(Function):
 class Mul(Function):
     name = "*"
     def f(self,inputs):
-        S = 1
+        S = 1.0
         for id in inputs:
             S = S*inputs[id]
         return S
     def dfdx(self,inputs):
         G = dict()
         for id in inputs:
-            S = 1
+            S = 1.0
             for Id in inputs:
                 if Id == id:
                     continue
@@ -246,7 +246,7 @@ class MatFunc(Function):
     def forward(self):
         self.inputs = dict([(node.id,node.value) for node in self.inputNodes])
         self.value = self.f(self.inputs)
-        self.grad = array([[1]])
+        self.grad = array([[0]],float64)
     def __init__(self, inputNodes, name=None, draw=True):
         super().__init__(inputNodes, name, draw)
         for n in self.inputNodes:
@@ -267,8 +267,8 @@ class MatMul(MatFunc):
         W = w.value
         X = x.value
         G = self.grad
-        w.grad = G @ X.T
-        x.grad = W.T @ G
+        w.grad = w.grad + G @ X.T
+        x.grad = x.grad + W.T @ G
 class SigmM(MatFunc):
     name = "Sigma"
     def f(self,inputs):
@@ -279,7 +279,7 @@ class SigmM(MatFunc):
         X = x.value
         G = self.grad
         sig = sigmoid(X)
-        x.grad = G*(sig**2/exp(X))
+        x.grad = x.grad + G*(sig**2/exp(X))
 class SqNorM(MatFunc):
     name = "Norm"
     def f(self,inputs):
@@ -287,7 +287,7 @@ class SqNorM(MatFunc):
         return array([linalg.norm(X,'fro')])**2
     def send(self):
         x = self.inputNodes[0]
-        x.grad = 2*x.value*self.grad
+        x.grad = x.grad + 2*x.value*self.grad
 class DotM(MatFunc):
     name = "."
     def f(self,inputs):
@@ -297,40 +297,40 @@ class DotM(MatFunc):
         x,y = self.inputNodes
         X,Y = x.value,y.value
         G = self.grad # assumed to be a scalar
-        x.grad = Y*G
-        y.grad = X*G
+        x.grad = x.grad + Y*G
+        y.grad = y.grad + X*G
 class AddM(MatFunc):
     name = "+"
     def f(self,inputs):
-        S = 0
+        S = 0.0
         for X in inputs.values():
             S = S + X
         return S
     def send(self):
         for n in self.inputNodes:
             if len(n.value.shape) == 1 or n.value.shape[0] == 1:
-                n.grad = sum(self.grad,axis=0)
+                n.grad = n.grad + sum(self.grad,axis=0)
             else :
-                n.grad = self.grad
+                n.grad = n.grad + self.grad
 class MulM(MatFunc):
     name = "*"
     def f(self,inputs):
-        S = 1
+        S = 1.0
         for X in inputs.values():
             S = S * X
         return S
     def send(self):
         for n in self.inputNodes:
             for m in self.inputNodes:
-                S = 1
+                S = 1.0
                 if m is not n:
                     S *= m.value
             if len(n.value.shape) == 2 and n.value.shape[1] == 1:
-                n.grad = sum(self.grad*S,axis=1)[:,newaxis]
+                n.grad = n.grad + sum(self.grad*S,axis=1)[:,newaxis]
             elif len(n.value.shape)==1:
-                n.grad = sum(self.grad*S,axis=0)[newaxis,:]
+                n.grad = n.grad + sum(self.grad*S,axis=0)[newaxis,:]
             else :
-                n.grad = self.grad*S
+                n.grad = n.grad + self.grad*S
 class Normalise(MatFunc):
     name = "normalise"
     def f(self,inputs):
@@ -341,7 +341,7 @@ class Normalise(MatFunc):
         X = x.value
         s = sum(X,axis=1)[:,newaxis]
         G = self.grad
-        x.grad = (G/s)*(1-(X/s))
+        x.grad = x.grad + (G/s)*(1.0-(X/s))
 class ExpM(MatFunc):
     name = "exp"
     def f(self,inputs):
@@ -352,7 +352,7 @@ class ExpM(MatFunc):
         X = x.value
         eX = exp(X)
         G = self.grad
-        x.grad = G*eX
+        x.grad = x.grad + G*eX
 class SoftMax(MatFunc):
     name = "SM"
     def f(self,inputs):
@@ -369,7 +369,7 @@ class SoftMax(MatFunc):
         G = self.grad
         out = yp - yp**2
         out = G*out
-        y_pred.grad = out
+        y_pred.grad = y_pred.grad + out
 class LogM(MatFunc):
     name = "log"
     def f(self,inputs):
@@ -383,7 +383,7 @@ class LogM(MatFunc):
         X = x.value
         Xi = X**-1
         G = self.grad
-        x.grad = G*Xi
+        x.grad = x.grad + G*Xi
 class NegM(MatFunc):
     name = "-"
     def f(self,inputs):
@@ -391,7 +391,7 @@ class NegM(MatFunc):
         return -X
     def send(self):
         x = self.inputNodes[0]
-        x.grad = -self.grad
+        x.grad = x.grad + -self.grad
 class PowM(MatFunc):
     name="**"
     def f(self,inputs):
@@ -401,7 +401,7 @@ class PowM(MatFunc):
         x,n = self.inputNodes
         X = x.value
         n = n.value
-        x.grad = self.grad*n*X**(n-1)
+        x.grad = x.grad + self.grad*n*X**(n-1)
 class SumM(MatFunc):
     name = "sum"
     def f(self,inputs):
@@ -409,7 +409,7 @@ class SumM(MatFunc):
         return sum(X,axis=1)
     def send(self):
         x = self.inputNodes[0]
-        x.grad = tile(self.grad[0][:,newaxis],x.value.shape[1])
+        x.grad = x.grad + tile(self.grad[0][:,newaxis],x.value.shape[1])
 class SUM(MatFunc):
     name = "SUM"
     def f(self,inputs):
@@ -417,49 +417,80 @@ class SUM(MatFunc):
         return array([sum(X)])
     def send(self):
         x = self.inputNodes[0]
-        x.grad = self.grad*ones(x.value.shape)
+        x.grad = x.grad + self.grad*ones(x.value.shape)
+class Embed(MatFunc):
+    def f(self,inputs):
+        x,W = inputs.values()
+        return W[x]
+    def send(self):
+        x,w = self.inputNodes
+        G = self.grad
+        W = w.value
+        x = x.value
+        m = W.shape[0]
+        n = G.shape[1]
+        BG = zeros((m,n))
+        for i in range(G.shape[0]):
+            BG[x[i]] = BG[x[i]] + G[i]
+        w.grad = w.grad + BG
 
-def CrossEntropy(inputNodes):
+def CrossEntropy(inputNodes,draw=True):
     data,prediction = inputNodes
     n = data.value.shape[0]
-    m = data.value.shape[1]
-    out = AddM([prediction,data,toNode(-1)])
-    out = PowM([out,Constant(array([[2]]))])
-    out = LogM([out])
-    out = MulM([out,Constant(array([[1/n]]))])
-    #one = ones((n,m))
-    #one = Constant(one,"1")
-    #out = DotM([out,one])
-    out = SUM([out])
-    out = Neg([out])
+    out = AddM([prediction,data,toNode(-1,False)],draw=False)
+    out = PowM([out,Constant(array([[2.0]],float64),draw=False)],draw=False)
+    out = LogM([out],draw=False)
+    out = MulM([out,Constant(array([[1/n]],float64),draw=False)],draw=False)
+    out = SUM([out],draw=False)
+    out = Neg([out],'L',draw)
+    if draw:
+        g.edge(str(data.id),str(out.id))
+        g.edge(str(prediction.id),str(out.id))
     return out
 def Sigm(inputNode,name="S",draw=True):
     out = Neg([inputNode],None,False)
     out = Exp([out],None,False)
-    out = Add([out,Constant(array([1]),None,False)],None,False)
-    out = Pow([out,Constant(array([-1]),None,False)],name,True)
+    out = Add([out,Constant(array([1],float64),None,False)],None,False)
+    out = Pow([out,Constant(array([-1],float64),None,False)],name,draw=draw)
     if draw and inputNode.draw:
         g.edge(str(inputNode.id),str(out.id))
     return out
-def Layer(X,pin,pout,name=None,bias=False,activation_func=SigmM,categorical=False):
+def Layer(X,pin,pout,name=None,bias=False,activation_func=SigmM,categorical=False,draw=True):
     W = random.random((pin,pout))
     if categorical:
         W = W/pout
-    W = Variable(W,"W")
-    Y = MatMul([X,W])
+    W = Variable(W,"W",False)
+    Y = MatMul([X,W],draw=False)
     if bias:
         b = random.random(pout)
-        b = Variable(b,"b")
-        Y = AddM([Y,b]) 
-    Y = activation_func([Y],name)
+        b = Variable(b,"b",False)
+        Y = AddM([Y,b],draw=False) 
+    Y = activation_func([Y],name,draw=draw)
+    if draw:
+        g.edge(str(X.id),str(Y.id))
     return Y
-def SqErM(inputNodes):
+def RNLayer(X,H0,Whh,Whx,Wyh,activation_func=SoftMax,name="RNLayer",draw=True):
+    H1 = MatMul([H0,Whh],draw=False)
+    H2 = MatMul([X,Whx],draw=False)
+    H3 = AddM([H1,H2],draw=False)
+    H = SigmM([H3],name+": H",draw)
+    Y = MatMul([H,Wyh],draw=False)
+    Y = activation_func([Y],name=name+": Y",draw=draw)
+    if draw:
+        g.edge(str(X.id),str(H.id))
+        g.edge(str(H0.id),str(H.id))
+        g.edge(str(H.id),str(Y.id))
+    return (Y,H)
+def SqErM(inputNodes,draw=True):
     yp,y = inputNodes
-    myp = NegM([yp])
-    er = AddM([myp,y])
+    myp = NegM([yp],draw=False)
+    er = AddM([myp,y],draw=False)
     n = y.value.shape[0]
-    er = MulM([er,Constant(array([[n**-0.5]]),"norm fact")])
-    s = SqNorM([er],"L")
+    er = MulM([er,Constant(array([[n**-0.5]]),"norm fact",draw=False)],draw=False)
+    s = SqNorM([er],"L",draw=draw)
+    if draw:
+        g.edge(str(yp.id),str(s.id))
+        g.edge(str(y.id),str(s.id))
     return s
 def perceptron(layer,draw=True):
     nl = []
@@ -486,6 +517,7 @@ def SqEr(inputNodes,name="L",draw=True):
 def BacProp(show=False):
     global NodeCollection
     n = NodeCollection[-1]
+    n.grad = array([[1.0]])
     if isinstance(n,MatFunc):
         n.send()
     for i in range(len(NodeCollection)-2,-1,-1):
@@ -526,14 +558,19 @@ def BackTrackAndDescend(iterations=100,alpha=2,dt_init=10**-2):
             dt_init /= alpha
     print("after",L.value)
     print("i =",i)
-def Descend(iterations=100):
+def Descend(iterations=100,Plot=False):
     global dt,NodeCollection,Variables
     L = NodeCollection[-1]
     print("before",L.value)
+    lossL = []
     for i in range(iterations):
         BacProp()
         forProp()
+        if Plot:
+            lossL.append(L.value)
     print("after",L.value)
+    if Plot:
+        plot(range(iterations),lossL)
 def Reset():
     global g,NodeCollection,Variables,counter,dt
     g = Digraph("Network")
@@ -634,3 +671,39 @@ class LayerNet:
             y_pred = argmax(y_pred,axis=1)
             y = argmax(y,axis=1)
         print("accuracy on training : ",round(mean(around(y_pred)==y)*100,2),"%")
+class RNN:
+    def __init__(self,XL,yL,h,activation_func=SoftMax,lossFunc=CrossEntropy):
+        Reset()
+        m = XL[0].shape[1]
+        n = yL[0].shape[1]
+        N = yL[0].shape[0]
+        self.T = T = len(XL)
+        XL = [Constant(XL[i],f"X<{i+1}>") for i in range(T)]
+        yL = [Constant(yL[i],f"y<{i+1}>") for i in range(T)]
+        self.yL = yL
+        self.XL = XL
+        H0 = random.random((N,h))
+        H0 = Variable(H0,'H<0>')
+        Whh = random.random((h,h))
+        Whx = random.random((m,h))
+        Wyh = random.random((h,n))
+        Whh = Variable(Whh,"Whh",draw=False)
+        Whx = Variable(Whx,"Whx",draw=False)
+        Wyh = Variable(Wyh,"Wyh",draw=False)
+        HL = [H0]
+        y_predL = []
+        self.HL = HL
+        self.y_predL = y_predL
+        self.Whh = Whh
+        self.Whx = Whx
+        self.Wyh = Wyh
+        for i in range(T):
+            y_pred,H = RNLayer(XL[i],HL[i],Whh,Whx,Wyh,activation_func,f"layer {i+1}")
+            y_predL.append(y_pred)
+            HL.append(H)
+
+        LL = [lossFunc([y_predL[i],yL[i]]) for i in range(T)]
+        self.LL = LL
+        L = Add(LL,draw=False)
+        L = Mul([L,toNode(1/T,False)],draw=False)
+        self.L = L
