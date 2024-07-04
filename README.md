@@ -1,4 +1,4 @@
-# ML_Journey
+# Machine Learning Journey
 This repository contains:
 1. My notes on the book "Mathematics for Machine Learning" (PDF and [HTML](https://pranav-joshi-iitgn.github.io/ML_Journey/))
 2. Many different machine learning models, either built from scratch, using only `numpy`, or using models from `sklearn`
