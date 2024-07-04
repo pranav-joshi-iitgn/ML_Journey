@@ -9,5 +9,5 @@ This repository contains:
    3. Embedding (`Embed.ipynb`)
    4. Reccurent Neural Network (`RNN.ipynb`)
    5. Illustration of Automotic differentiation (`AutoDiff.ipynb`)
-6. Data Narratives on a few databases
+6. Data Narratives on a few datasets
 
